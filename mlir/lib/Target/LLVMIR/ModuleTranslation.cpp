@@ -899,7 +899,18 @@ LogicalResult ModuleTranslation::convertOneFunction(LLVMFuncOp func) {
   detail::connectPHINodes(func.getBody(), *this);
 
   // Finally, convert dialect attributes attached to the function.
-  return convertDialectAttributes(func);
+  LogicalResult result = convertDialectAttributes(func);
+
+  // Allow translation of functions in the OpenMP device pass only to process
+  // target regions, so that they can be outlined. However, they must be deleted
+  // TODO Do not delete if this is an OpenMP declare target function
+  if (auto offloadMod =
+          dyn_cast<mlir::omp::OffloadModuleInterface>(mlirModule)) {
+    if (offloadMod.getIsDevice())
+      llvmFunc->eraseFromParent();
+  }
+
+  return result;
 }
 
 LogicalResult ModuleTranslation::convertDialectAttributes(Operation *op) {

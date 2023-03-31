@@ -4112,7 +4112,8 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTargetData(
 }
 
 static Function *
-createOutlinedFunction(IRBuilderBase &Builder, StringRef FuncName,
+createOutlinedFunction(OpenMPIRBuilder &OMPBuilder, IRBuilderBase &Builder,
+                       StringRef FuncName,
                        SmallVectorImpl<Type *> &ParameterTypes,
                        OpenMPIRBuilder::TargetBodyGenCallbackTy &CBFunc) {
   auto FuncType = FunctionType::get(Builder.getVoidTy(), ParameterTypes,
@@ -4126,6 +4127,11 @@ createOutlinedFunction(IRBuilderBase &Builder, StringRef FuncName,
   // Generate the region into the function.
   BasicBlock *EntryBB = BasicBlock::Create(Builder.getContext(), "entry", Func);
   Builder.SetInsertPoint(EntryBB);
+
+  if (OMPBuilder.Config.isEmbedded())
+    Builder.restoreIP(OMPBuilder.createTargetInit(Builder,
+                                                  /*IsSPMD*/ false));
+
   SmallVector<Value *, 4> Inputs;
   BasicBlock *ExitBlock = CBFunc(Builder.saveIP(), Inputs);
 
@@ -4145,6 +4151,8 @@ createOutlinedFunction(IRBuilderBase &Builder, StringRef FuncName,
 
   // Insert return instruction.
   Builder.SetInsertPoint(ExitBlock);
+  if (OMPBuilder.Config.isEmbedded())
+    OMPBuilder.createTargetDeinit(Builder, /*IsSPMD*/ false);
   Builder.CreateRetVoid();
 
   // Restore insert point.
@@ -4160,9 +4168,9 @@ static void emitTargetOutlinedFunction(
     OpenMPIRBuilder::TargetBodyGenCallbackTy &CBFunc) {
 
   OpenMPIRBuilder::FunctionGenCallback &&generateOutlinedFunction =
-      [&Builder, &ParameterTypes, &CBFunc](StringRef EntryFnName) {
-        return createOutlinedFunction(Builder, EntryFnName, ParameterTypes,
-                                      CBFunc);
+      [&OMPBuilder, &Builder, &ParameterTypes, &CBFunc](StringRef EntryFnName) {
+        return createOutlinedFunction(OMPBuilder, Builder, EntryFnName,
+                                      ParameterTypes, CBFunc);
       };
 
   Constant *OutlinedFnID;
@@ -4193,7 +4201,8 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::createTarget(
   }
   emitTargetOutlinedFunction(*this, Builder, EntryInfo, OutlinedFn, NumTeams,
                              NumThreads, ParameterTypes, CBFunc);
-  emitTargetCall(Builder, OutlinedFn, Args);
+  if (!Config.isEmbedded())
+    emitTargetCall(Builder, OutlinedFn, Args);
   return Builder.saveIP();
 }
 
