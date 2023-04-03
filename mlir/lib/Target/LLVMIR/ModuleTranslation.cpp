@@ -21,6 +21,7 @@
 #include "mlir/Dialect/LLVMIR/LLVMInterfaces.h"
 #include "mlir/Dialect/LLVMIR/Transforms/LegalizeForExport.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
+#include "mlir/Dialect/OpenMP/OpenMPInterfaces.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -1322,6 +1323,15 @@ mlir::translateModuleToLLVMIR(Operation *module, llvm::LLVMContext &llvmContext,
   LLVM::ensureDistinctSuccessors(module);
 
   ModuleTranslation translator(module, std::move(llvmModule));
+
+  bool isDevice = false;
+  if (auto offloadMod = dyn_cast<mlir::omp::OffloadModuleInterface>(module)) {
+    isDevice = offloadMod.getIsDevice();
+  }
+  // TODO: set the flags when available
+  llvm::OpenMPIRBuilderConfig Config(isDevice, false, false, false);
+  translator.getOpenMPBuilder()->setConfig(Config);
+
   if (failed(translator.convertFunctionSignatures()))
     return nullptr;
   if (failed(translator.convertGlobals()))
